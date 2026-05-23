@@ -1,6 +1,7 @@
 package com.xavopls.ibkr_dashboard.service;
 
 import com.xavopls.ibkr_dashboard.config.IbkrProperties;
+import com.xavopls.ibkr_dashboard.dto.PnlSyncResponse;
 import com.xavopls.ibkr_dashboard.dto.PositionSyncResponse;
 import com.xavopls.ibkr_dashboard.dto.SyncResponse;
 import com.xavopls.ibkr_dashboard.dto.TradeSyncResponse;
@@ -21,29 +22,36 @@ public class DefaultSyncService implements SyncService {
     private final TradeRepository tradeRepository;
     private final PositionSyncService positionSyncService;
     private final TradeSyncService tradeSyncService;
+    private final PnlSyncService pnlSyncService;
 
     public DefaultSyncService(IbkrProperties ibkrProperties,
                               AccountRepository accountRepository,
                               TradeRepository tradeRepository,
                               PositionSyncService positionSyncService,
-                              TradeSyncService tradeSyncService) {
+                              TradeSyncService tradeSyncService,
+                              PnlSyncService pnlSyncService) {
         this.ibkrProperties = ibkrProperties;
         this.accountRepository = accountRepository;
         this.tradeRepository = tradeRepository;
         this.positionSyncService = positionSyncService;
         this.tradeSyncService = tradeSyncService;
+        this.pnlSyncService = pnlSyncService;
     }
 
     @Override
     public SyncResponse sync() {
         PositionSyncResponse positions = positionSyncService.syncPositions();
         Account account = resolveAccount();
-        LocalDate tradesFrom = latestTradeDate(account);
         LocalDate tradesTo = lastCompletedBusinessDay(LocalDate.now());
+        LocalDate tradesFrom = latestTradeDate(account);
+        if (tradesFrom.isAfter(tradesTo)) {
+            tradesFrom = tradesTo;
+        }
 
         TradeSyncResponse trades = tradeSyncService.syncTrades(tradesFrom, tradesTo);
+        PnlSyncResponse pnl = pnlSyncService.syncPnl(tradesFrom, tradesTo);
 
-        return new SyncResponse(account.getAccountNumber(), tradesFrom, tradesTo, positions, trades, Instant.now());
+        return new SyncResponse(account.getAccountNumber(), tradesFrom, tradesTo, positions, trades, pnl, Instant.now());
     }
 
     private Account resolveAccount() {

@@ -9,6 +9,7 @@ public record SyncResponse(
         LocalDate tradesTo,
         PositionSyncResponse positions,
         TradeSyncResponse trades,
+        PnlSyncResponse pnl,
         Instant syncedAt
 ) {
 }
