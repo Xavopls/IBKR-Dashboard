@@ -1,0 +1,50 @@
+HELP.md
+.codex-context.md
+
+### Local environment ###
+.env
+.env.*
+!.env.example
+
+### Logs ###
+*.log
+logs/
+hs_err_pid*
+
+### OS files ###
+.DS_Store
+Thumbs.db
+
+### Build output ###
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
