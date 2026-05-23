@@ -22,7 +22,7 @@
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <springdoc.version>2.6.0</springdoc.version>
         <opencsv.version>5.9</opencsv.version>
-        <protobuf.version>4.29.3</protobuf.version>
+        <protobuf.version>4.29.5</protobuf.version>
     </properties>
 
     <dependencies>
@@ -31,6 +31,11 @@
             <groupId>com.ib</groupId>
             <artifactId>tws-api</artifactId>
             <version>10.45</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
         </dependency>
 
         <!-- Spring Boot Web -->

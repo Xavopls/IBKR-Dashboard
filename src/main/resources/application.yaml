@@ -53,6 +53,19 @@ management:
     health:
       show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:when-authorized}
 
+ibkr:
+  account-id: ${IBKR_ACCOUNT_ID:}
+  tws:
+    host: ${IBKR_TWS_HOST:127.0.0.1}
+    port: ${IBKR_TWS_PORT:7497}
+    client-id: ${IBKR_TWS_CLIENT_ID:101}
+    timeout-seconds: ${IBKR_TWS_TIMEOUT_SECONDS:20}
+  flex:
+    token: ${IBKR_FLEX_TOKEN:}
+    trades-query-id: ${IBKR_FLEX_TRADES_QUERY_ID:}
+    base-url: ${IBKR_FLEX_BASE_URL:https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService}
+    version: ${IBKR_FLEX_VERSION:3}
+
 logging:
   level:
     com.xavopls.ibkr_dashboard: DEBUG

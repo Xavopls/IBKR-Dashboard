@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Positive;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * A single executed trade associated with an account and instrument.
@@ -35,8 +36,14 @@ public class Trade {
     @Column(name = "trade_date", nullable = false)
     private LocalDate tradeDate;
 
+    @Column(name = "trade_time")
+    private LocalDateTime tradeTime;
+
     @Column(name = "settlement_date")
     private LocalDate settlementDate;
+
+    @Column(name = "ibkr_execution_id", length = 100)
+    private String ibkrExecutionId;
 
     @NotNull
     @Enumerated(EnumType.STRING)
@@ -88,8 +95,14 @@ public class Trade {
     public LocalDate getTradeDate() { return tradeDate; }
     public void setTradeDate(LocalDate tradeDate) { this.tradeDate = tradeDate; }
 
+    public LocalDateTime getTradeTime() { return tradeTime; }
+    public void setTradeTime(LocalDateTime tradeTime) { this.tradeTime = tradeTime; }
+
     public LocalDate getSettlementDate() { return settlementDate; }
     public void setSettlementDate(LocalDate settlementDate) { this.settlementDate = settlementDate; }
+
+    public String getIbkrExecutionId() { return ibkrExecutionId; }
+    public void setIbkrExecutionId(String ibkrExecutionId) { this.ibkrExecutionId = ibkrExecutionId; }
 
     public TradeDirection getDirection() { return direction; }
     public void setDirection(TradeDirection direction) { this.direction = direction; }

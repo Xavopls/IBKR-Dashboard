@@ -4,20 +4,12 @@ datasources:
   - name: TradingDB
     type: postgres
     url: postgres:5432
-    database: trading_db
     user: trading_user
     secureJsonData:
       password: trading_pass
     jsonData:
+      database: trading_db
       sslmode: disable
       postgresVersion: 1600
       timescaledb: false
     isDefault: true
-
-  - name: TradingAPI
-    type: yesoreyeram-infinity-datasource
-    access: proxy
-    jsonData:
-      base_url: "http://app:8080"
-      allowed_hosts:
-        - "http://app:8080"
