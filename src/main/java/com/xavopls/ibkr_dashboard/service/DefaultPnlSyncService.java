@@ -8,6 +8,8 @@ import com.xavopls.ibkr_dashboard.repository.AccountRepository;
 import com.xavopls.ibkr_dashboard.repository.DailyPnlRepository;
 import com.xavopls.ibkr_dashboard.repository.TradeRepository;
 import com.xavopls.ibkr_dashboard.repository.projection.DailyRealizedPnl;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +20,8 @@ import java.util.List;
 
 @Service
 public class DefaultPnlSyncService implements PnlSyncService {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultPnlSyncService.class);
 
     private final IbkrProperties ibkrProperties;
     private final AccountRepository accountRepository;
@@ -43,6 +47,8 @@ public class DefaultPnlSyncService implements PnlSyncService {
         LocalDate resolvedFrom = from != null ? from : earliestTradeDate(account);
         LocalDate resolvedTo = to != null ? to : latestTradeDate(account);
         validateDateRange(resolvedFrom, resolvedTo);
+        log.info("Starting P&L sync for account={} from={} to={}",
+                account.getAccountNumber(), resolvedFrom, resolvedTo);
 
         List<DailyRealizedPnl> dailyPnl = tradeRepository.findDailyRealizedPnl(
                 account.getId(),
@@ -56,6 +62,7 @@ public class DefaultPnlSyncService implements PnlSyncService {
             updated++;
         }
 
+        log.info("Finished P&L sync for account={} updatedDays={}", account.getAccountNumber(), updated);
         return new PnlSyncResponse(account.getAccountNumber(), resolvedFrom, resolvedTo, updated, Instant.now());
     }
 

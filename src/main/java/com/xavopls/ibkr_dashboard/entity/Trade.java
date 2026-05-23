@@ -63,13 +63,28 @@ public class Trade {
     @Column(name = "commission", precision = 20, scale = 6)
     private BigDecimal commission;
 
+    @Column(name = "trade_currency", length = 10)
+    private String tradeCurrency;
+
+    @Column(name = "fx_rate_to_base", precision = 20, scale = 10)
+    private BigDecimal fxRateToBase;
+
     /** Signed net cash impact: negative for buys, positive for sells. */
     @Column(name = "net_amount", precision = 20, scale = 6)
     private BigDecimal netAmount;
 
+    @Column(name = "net_amount_base", precision = 20, scale = 6)
+    private BigDecimal netAmountBase;
+
     /** Populated only for closing trades (SELL that closes a position). Null for opening trades. */
     @Column(name = "realized_pnl", precision = 20, scale = 6)
     private BigDecimal realizedPnl;
+
+    @Column(name = "realized_pnl_base", precision = 20, scale = 6)
+    private BigDecimal realizedPnlBase;
+
+    @Column(name = "commission_base", precision = 20, scale = 6)
+    private BigDecimal commissionBase;
 
     @Column(name = "strategy_tag", length = 100)
     private String strategyTag;
@@ -116,11 +131,26 @@ public class Trade {
     public BigDecimal getCommission() { return commission; }
     public void setCommission(BigDecimal commission) { this.commission = commission; }
 
+    public String getTradeCurrency() { return tradeCurrency; }
+    public void setTradeCurrency(String tradeCurrency) { this.tradeCurrency = tradeCurrency; }
+
+    public BigDecimal getFxRateToBase() { return fxRateToBase; }
+    public void setFxRateToBase(BigDecimal fxRateToBase) { this.fxRateToBase = fxRateToBase; }
+
     public BigDecimal getNetAmount() { return netAmount; }
     public void setNetAmount(BigDecimal netAmount) { this.netAmount = netAmount; }
 
+    public BigDecimal getNetAmountBase() { return netAmountBase; }
+    public void setNetAmountBase(BigDecimal netAmountBase) { this.netAmountBase = netAmountBase; }
+
     public BigDecimal getRealizedPnl() { return realizedPnl; }
     public void setRealizedPnl(BigDecimal realizedPnl) { this.realizedPnl = realizedPnl; }
+
+    public BigDecimal getRealizedPnlBase() { return realizedPnlBase; }
+    public void setRealizedPnlBase(BigDecimal realizedPnlBase) { this.realizedPnlBase = realizedPnlBase; }
+
+    public BigDecimal getCommissionBase() { return commissionBase; }
+    public void setCommissionBase(BigDecimal commissionBase) { this.commissionBase = commissionBase; }
 
     public String getStrategyTag() { return strategyTag; }
     public void setStrategyTag(String strategyTag) { this.strategyTag = strategyTag; }

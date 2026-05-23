@@ -3,11 +3,19 @@ package com.xavopls.ibkr_dashboard.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
 @Component
 @ConfigurationProperties(prefix = "ibkr")
 public class IbkrProperties {
 
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd-MM-yyyy");
+
     private String accountId;
+    private String historyFromDate = "01-01-2026";
+    private int historyChunkDays = 365;
+    private int historyChunkDelaySeconds = 5;
     private Tws tws = new Tws();
     private Flex flex = new Flex();
 
@@ -17,6 +25,30 @@ public class IbkrProperties {
 
     public void setAccountId(String accountId) {
         this.accountId = accountId;
+    }
+
+    public LocalDate getHistoryFromDate() {
+        return LocalDate.parse(historyFromDate, DATE_FORMAT);
+    }
+
+    public void setHistoryFromDate(String historyFromDate) {
+        this.historyFromDate = historyFromDate;
+    }
+
+    public int getHistoryChunkDays() {
+        return historyChunkDays;
+    }
+
+    public void setHistoryChunkDays(int historyChunkDays) {
+        this.historyChunkDays = historyChunkDays;
+    }
+
+    public int getHistoryChunkDelaySeconds() {
+        return historyChunkDelaySeconds;
+    }
+
+    public void setHistoryChunkDelaySeconds(int historyChunkDelaySeconds) {
+        this.historyChunkDelaySeconds = historyChunkDelaySeconds;
     }
 
     public Tws getTws() {

@@ -10,15 +10,21 @@ import com.xavopls.ibkr_dashboard.ibkr.IbkrTradeExecution;
 import com.xavopls.ibkr_dashboard.mapper.TradeExecutionMapper;
 import com.xavopls.ibkr_dashboard.repository.AccountRepository;
 import com.xavopls.ibkr_dashboard.repository.TradeRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
 @Service
 public class DefaultTradeSyncService implements TradeSyncService {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultTradeSyncService.class);
 
     private final IbkrProperties ibkrProperties;
     private final IbkrClient ibkrClient;
@@ -41,18 +47,34 @@ public class DefaultTradeSyncService implements TradeSyncService {
     @Override
     @Transactional
     public TradeSyncResponse syncTrades(LocalDate from, LocalDate to) {
+        to = clampToCompletedFlexDate(to);
         validateDateRange(from, to);
 
         Account account = resolveAccount();
+        log.info("Starting trades sync for account={} from={} to={}", account.getAccountNumber(), from, to);
         List<IbkrTradeExecution> executions = ibkrClient.getTrades(account.getAccountNumber(), from, to);
         int inserted = 0;
         int skipped = 0;
+        int updated = 0;
 
         for (IbkrTradeExecution execution : executions) {
+            if (isNotPersistableTrade(execution)) {
+                skipped++;
+                continue;
+            }
+
             Trade trade = tradeExecutionMapper.toTrade(execution);
             trade.setAccount(account);
 
-            if (alreadyImported(account, trade)) {
+            Trade existingTrade = findExistingTrade(account, trade);
+            if (existingTrade != null) {
+                updateExistingTrade(existingTrade, trade);
+                tradeRepository.save(existingTrade);
+                updated++;
+                continue;
+            }
+
+            if (naturalDuplicateExists(account, trade)) {
                 skipped++;
                 continue;
             }
@@ -61,7 +83,20 @@ public class DefaultTradeSyncService implements TradeSyncService {
             inserted++;
         }
 
-        return new TradeSyncResponse(account.getAccountNumber(), executions.size(), inserted, skipped, Instant.now());
+        log.info("Finished trades sync for account={} fetched={} inserted={} updated={} skipped={}",
+                account.getAccountNumber(), executions.size(), inserted, updated, skipped);
+        return new TradeSyncResponse(account.getAccountNumber(), executions.size(), inserted, updated, skipped, Instant.now());
+    }
+
+    private boolean isNotPersistableTrade(IbkrTradeExecution execution) {
+        return execution.quantity() == null
+                || execution.price() == null
+                || storedDecimal(execution.quantity()).compareTo(BigDecimal.ZERO) <= 0
+                || storedDecimal(execution.price()).compareTo(BigDecimal.ZERO) <= 0;
+    }
+
+    private BigDecimal storedDecimal(BigDecimal value) {
+        return value.abs().setScale(6, RoundingMode.HALF_UP);
     }
 
     private void validateDateRange(LocalDate from, LocalDate to) {
@@ -73,6 +108,30 @@ public class DefaultTradeSyncService implements TradeSyncService {
         }
     }
 
+    private LocalDate clampToCompletedFlexDate(LocalDate date) {
+        if (date == null) {
+            return null;
+        }
+
+        LocalDate latestAvailableDate = lastCompletedBusinessDay(LocalDate.now());
+        if (!date.isAfter(latestAvailableDate)) {
+            return date;
+        }
+
+        log.warn("Trades sync end date {} is not a completed IBKR Flex statement day; using {} instead",
+                date, latestAvailableDate);
+        return latestAvailableDate;
+    }
+
+    private LocalDate lastCompletedBusinessDay(LocalDate date) {
+        LocalDate candidate = date.minusDays(1);
+        while (candidate.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
+                || candidate.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
+            candidate = candidate.minusDays(1);
+        }
+        return candidate;
+    }
+
     private Account resolveAccount() {
         String accountId = ibkrProperties.getAccountId();
         if (accountId == null || accountId.isBlank()) {
@@ -82,11 +141,17 @@ public class DefaultTradeSyncService implements TradeSyncService {
                 .orElseGet(() -> accountRepository.save(new Account(accountId, accountId, Currency.USD)));
     }
 
-    private boolean alreadyImported(Account account, Trade trade) {
+    private Trade findExistingTrade(Account account, Trade trade) {
         if (trade.getIbkrExecutionId() != null && !trade.getIbkrExecutionId().isBlank()) {
-            return tradeRepository.existsByAccountIdAndIbkrExecutionId(account.getId(), trade.getIbkrExecutionId());
+            return tradeRepository
+                    .findByAccountIdAndIbkrExecutionId(account.getId(), trade.getIbkrExecutionId())
+                    .orElse(null);
         }
 
+        return null;
+    }
+
+    private boolean naturalDuplicateExists(Account account, Trade trade) {
         return tradeRepository.existsByAccountIdAndInstrumentIdAndTradeDateAndDirectionAndQuantityAndPrice(
                 account.getId(),
                 trade.getInstrument().getId(),
@@ -95,5 +160,23 @@ public class DefaultTradeSyncService implements TradeSyncService {
                 trade.getQuantity(),
                 trade.getPrice()
         );
+    }
+
+    private void updateExistingTrade(Trade existingTrade, Trade importedTrade) {
+        existingTrade.setInstrument(importedTrade.getInstrument());
+        existingTrade.setTradeDate(importedTrade.getTradeDate());
+        existingTrade.setTradeTime(importedTrade.getTradeTime());
+        existingTrade.setSettlementDate(importedTrade.getSettlementDate());
+        existingTrade.setDirection(importedTrade.getDirection());
+        existingTrade.setQuantity(importedTrade.getQuantity());
+        existingTrade.setPrice(importedTrade.getPrice());
+        existingTrade.setCommission(importedTrade.getCommission());
+        existingTrade.setTradeCurrency(importedTrade.getTradeCurrency());
+        existingTrade.setFxRateToBase(importedTrade.getFxRateToBase());
+        existingTrade.setNetAmount(importedTrade.getNetAmount());
+        existingTrade.setNetAmountBase(importedTrade.getNetAmountBase());
+        existingTrade.setRealizedPnl(importedTrade.getRealizedPnl());
+        existingTrade.setRealizedPnlBase(importedTrade.getRealizedPnlBase());
+        existingTrade.setCommissionBase(importedTrade.getCommissionBase());
     }
 }

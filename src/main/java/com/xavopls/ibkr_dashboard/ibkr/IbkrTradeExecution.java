@@ -12,6 +12,7 @@ public record IbkrTradeExecution(
         String assetClass,
         String exchange,
         String currency,
+        BigDecimal fxRateToBase,
         LocalDate tradeDate,
         LocalDateTime tradeTime,
         LocalDate settlementDate,

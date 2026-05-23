@@ -41,6 +41,10 @@ springdoc:
     path: /api-docs
   swagger-ui:
     path: /swagger-ui.html
+    display-request-duration: true
+    doc-expansion: none
+    filter: true
+    try-it-out-enabled: true
     operations-sorter: alpha
     tags-sorter: alpha
 
@@ -55,6 +59,9 @@ management:
 
 ibkr:
   account-id: ${IBKR_ACCOUNT_ID:}
+  history-from-date: ${IBKR_HISTORY_FROM_DATE:01-01-2026}
+  history-chunk-days: ${IBKR_HISTORY_CHUNK_DAYS:30}
+  history-chunk-delay-seconds: ${IBKR_HISTORY_CHUNK_DELAY_SECONDS:5}
   tws:
     host: ${IBKR_TWS_HOST:127.0.0.1}
     port: ${IBKR_TWS_PORT:7497}

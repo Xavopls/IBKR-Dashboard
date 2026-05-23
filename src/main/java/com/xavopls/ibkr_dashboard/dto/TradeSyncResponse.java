@@ -6,6 +6,7 @@ public record TradeSyncResponse(
         String accountId,
         int fetched,
         int inserted,
+        int updated,
         int skipped,
         Instant syncedAt
 ) {

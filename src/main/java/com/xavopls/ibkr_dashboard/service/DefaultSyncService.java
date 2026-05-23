@@ -8,6 +8,8 @@ import com.xavopls.ibkr_dashboard.dto.TradeSyncResponse;
 import com.xavopls.ibkr_dashboard.entity.Account;
 import com.xavopls.ibkr_dashboard.repository.AccountRepository;
 import com.xavopls.ibkr_dashboard.repository.TradeRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.DayOfWeek;
@@ -16,6 +18,8 @@ import java.time.LocalDate;
 
 @Service
 public class DefaultSyncService implements SyncService {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultSyncService.class);
 
     private final IbkrProperties ibkrProperties;
     private final AccountRepository accountRepository;
@@ -40,6 +44,7 @@ public class DefaultSyncService implements SyncService {
 
     @Override
     public SyncResponse sync() {
+        log.info("Starting dashboard sync");
         PositionSyncResponse positions = positionSyncService.syncPositions();
         Account account = resolveAccount();
         LocalDate tradesTo = lastCompletedBusinessDay(LocalDate.now());
@@ -51,6 +56,8 @@ public class DefaultSyncService implements SyncService {
         TradeSyncResponse trades = tradeSyncService.syncTrades(tradesFrom, tradesTo);
         PnlSyncResponse pnl = pnlSyncService.syncPnl(tradesFrom, tradesTo);
 
+        log.info("Finished dashboard sync account={} tradesFrom={} tradesTo={} positionsUpdated={} tradesInserted={} pnlUpdated={}",
+                account.getAccountNumber(), tradesFrom, tradesTo, positions.updated(), trades.inserted(), pnl.updated());
         return new SyncResponse(account.getAccountNumber(), tradesFrom, tradesTo, positions, trades, pnl, Instant.now());
     }
 

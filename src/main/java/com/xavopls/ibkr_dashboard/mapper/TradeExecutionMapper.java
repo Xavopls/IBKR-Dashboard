@@ -10,6 +10,7 @@ import com.xavopls.ibkr_dashboard.repository.InstrumentRepository;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 @Component
 public class TradeExecutionMapper {
@@ -33,10 +34,17 @@ public class TradeExecutionMapper {
         trade.setQuantity(execution.quantity().abs());
         trade.setPrice(execution.price().abs());
         trade.setCommission(execution.commission());
-        trade.setNetAmount(execution.netAmount() != null
+        trade.setTradeCurrency(execution.currency());
+        trade.setFxRateToBase(execution.fxRateToBase());
+
+        BigDecimal netAmount = execution.netAmount() != null
                 ? execution.netAmount()
-                : netAmount(execution.quantity(), execution.price(), direction));
+                : netAmount(execution.quantity(), execution.price(), direction);
+        trade.setNetAmount(netAmount);
+        trade.setNetAmountBase(toBaseCurrency(netAmount, execution.fxRateToBase()));
         trade.setRealizedPnl(execution.realizedPnl());
+        trade.setRealizedPnlBase(toBaseCurrency(execution.realizedPnl(), execution.fxRateToBase()));
+        trade.setCommissionBase(toBaseCurrency(execution.commission(), execution.fxRateToBase()));
         trade.setNotes(execution.executionId());
 
         return trade;
@@ -67,6 +75,13 @@ public class TradeExecutionMapper {
     private BigDecimal netAmount(BigDecimal quantity, BigDecimal price, TradeDirection direction) {
         BigDecimal amount = quantity.abs().multiply(price.abs());
         return direction == TradeDirection.BUY ? amount.negate() : amount;
+    }
+
+    private BigDecimal toBaseCurrency(BigDecimal value, BigDecimal fxRateToBase) {
+        if (value == null || fxRateToBase == null) {
+            return null;
+        }
+        return value.multiply(fxRateToBase).setScale(6, RoundingMode.HALF_UP);
     }
 
     private AssetClass parseAssetClass(String value) {

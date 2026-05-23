@@ -10,6 +10,8 @@ import com.xavopls.ibkr_dashboard.ibkr.IbkrPositionSnapshot;
 import com.xavopls.ibkr_dashboard.mapper.PositionSnapshotMapper;
 import com.xavopls.ibkr_dashboard.repository.AccountRepository;
 import com.xavopls.ibkr_dashboard.repository.PositionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +20,8 @@ import java.util.List;
 
 @Service
 public class DefaultPositionSyncService implements PositionSyncService {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultPositionSyncService.class);
 
     private final IbkrProperties ibkrProperties;
     private final IbkrClient ibkrClient;
@@ -41,6 +45,7 @@ public class DefaultPositionSyncService implements PositionSyncService {
     @Transactional
     public PositionSyncResponse syncPositions() {
         Account account = resolveAccount();
+        log.info("Starting positions sync for account={}", account.getAccountNumber());
         List<IbkrPositionSnapshot> snapshots = ibkrClient.getPositions(account.getAccountNumber());
         int updated = 0;
 
@@ -49,6 +54,8 @@ public class DefaultPositionSyncService implements PositionSyncService {
             updated++;
         }
 
+        log.info("Finished positions sync for account={} fetched={} updated={}",
+                account.getAccountNumber(), snapshots.size(), updated);
         return new PositionSyncResponse(account.getAccountNumber(), snapshots.size(), updated, Instant.now());
     }
 

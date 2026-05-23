@@ -9,6 +9,8 @@ import com.ib.client.EReader;
 import com.ib.client.Execution;
 import com.ib.client.ExecutionFilter;
 import com.xavopls.ibkr_dashboard.config.IbkrProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -20,6 +22,7 @@ import org.xml.sax.InputSource;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -33,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 public class IbkrClient {
+
+    private static final Logger log = LoggerFactory.getLogger(IbkrClient.class);
 
     private static final int TRADES_REQUEST_ID = 1;
     private static final DateTimeFormatter IBKR_EXECUTION_TIME = DateTimeFormatter.ofPattern("yyyyMMdd  HH:mm:ss");
@@ -48,14 +53,31 @@ public class IbkrClient {
     }
 
     public List<IbkrPositionSnapshot> getPositions(String accountId) {
+        log.info("Requesting TWS positions account={}", accountId);
         EJavaSignal signal = new EJavaSignal();
         PositionSnapshotHandler handler = new PositionSnapshotHandler(accountId);
         EClientSocket client = new EClientSocket(handler, signal);
-        return requestPositions(client, signal, handler, properties.getTws());
+        List<IbkrPositionSnapshot> positions = requestPositions(client, signal, handler, properties.getTws());
+        log.info("Received TWS positions account={} count={}", accountId, positions.size());
+        return positions;
     }
 
     public List<IbkrTradeExecution> getTrades(String accountId, LocalDate from, LocalDate to) {
         return getHistoricalTrades(accountId, from, to);
+    }
+
+    public IbkrAccountProfile getAccountProfile(String accountId, LocalDate from, LocalDate to) {
+        IbkrProperties.Flex flex = properties.getFlex();
+        requireText(flex.getToken(), "IBKR_FLEX_TOKEN is required for account profile sync.");
+        requireText(flex.getTradesQueryId(), "IBKR_FLEX_TRADES_QUERY_ID is required for account profile sync.");
+
+        log.info("Requesting IBKR Flex account profile account={} from={} to={}", accountId, from, to);
+        String referenceCode = requestFlexStatement(flex, from, to);
+        String statement = fetchFlexStatement(flex, referenceCode);
+        IbkrAccountProfile profile = parseAccountProfile(statement, accountId);
+        log.info("Received IBKR Flex account profile account={} dateOpened={} dateFunded={}",
+                accountId, profile.dateOpened(), profile.dateFunded());
+        return profile;
     }
 
     public List<IbkrTradeExecution> getHistoricalTrades(String accountId, LocalDate from, LocalDate to) {
@@ -63,19 +85,27 @@ public class IbkrClient {
         requireText(flex.getToken(), "IBKR_FLEX_TOKEN is required for historical trade sync.");
         requireText(flex.getTradesQueryId(), "IBKR_FLEX_TRADES_QUERY_ID is required for historical trade sync.");
 
+        log.info("Requesting IBKR Flex trades account={} from={} to={}", accountId, from, to);
         String referenceCode = requestFlexStatement(flex, from, to);
         String statement = fetchFlexStatement(flex, referenceCode);
-        return parseFlexTrades(statement, accountId);
+        List<IbkrTradeExecution> trades = parseFlexTrades(statement, accountId);
+        log.info("Received IBKR Flex trades account={} count={}", accountId, trades.size());
+        return trades;
     }
 
     public List<IbkrTradeExecution> getSessionTrades(String accountId) {
+        log.info("Requesting TWS session executions account={}", accountId);
         EJavaSignal signal = new EJavaSignal();
         TradeExecutionHandler handler = new TradeExecutionHandler(accountId, TRADES_REQUEST_ID);
         EClientSocket client = new EClientSocket(handler, signal);
-        return requestTrades(client, signal, handler, properties.getTws());
+        List<IbkrTradeExecution> trades = requestTrades(client, signal, handler, properties.getTws());
+        log.info("Received TWS session executions account={} count={}", accountId, trades.size());
+        return trades;
     }
 
     private String requestFlexStatement(IbkrProperties.Flex flex, LocalDate from, LocalDate to) {
+        log.info("Sending IBKR Flex statement request queryId={} from={} to={}",
+                flex.getTradesQueryId(), from, to);
         String response = flexRestClient.get()
                 .uri(sendRequestUri(flex, from, to))
                 .retrieve()
@@ -87,10 +117,13 @@ public class IbkrClient {
             throw new IllegalStateException("IBKR Flex request failed: " + firstText(text(document, "ErrorMessage"), status));
         }
 
-        return requireText(text(document, "ReferenceCode"), "IBKR Flex response did not include a reference code.");
+        String referenceCode = requireText(text(document, "ReferenceCode"), "IBKR Flex response did not include a reference code.");
+        log.info("IBKR Flex statement request accepted referenceCode={}", referenceCode);
+        return referenceCode;
     }
 
     private String fetchFlexStatement(IbkrProperties.Flex flex, String referenceCode) {
+        log.info("Fetching IBKR Flex statement referenceCode={}", referenceCode);
         String response = flexRestClient.get()
                 .uri(UriComponentsBuilder.fromUriString(flex.getBaseUrl() + "/GetStatement")
                         .queryParam("t", flex.getToken())
@@ -106,6 +139,7 @@ public class IbkrClient {
             throw new IllegalStateException("IBKR Flex statement fetch failed: " + firstText(text(document, "ErrorMessage"), status));
         }
 
+        log.info("Fetched IBKR Flex statement referenceCode={}", referenceCode);
         return response;
     }
 
@@ -129,15 +163,17 @@ public class IbkrClient {
         List<IbkrTradeExecution> trades = new ArrayList<>();
 
         if (tradeNodes.getLength() == 0) {
-            throw new IllegalStateException("IBKR Flex response contained no Trade rows. "
-                    + "Check that the Flex Query is an Activity Flex Query, includes the Trades section, "
-                    + "uses XML format, and has a date range that includes executed trades.");
+            log.warn("IBKR Flex response contained no Trade rows for account={}", accountId);
+            return List.of();
         }
 
         for (int index = 0; index < tradeNodes.getLength(); index++) {
             Element trade = (Element) tradeNodes.item(index);
             String tradeAccountId = attr(trade, "accountId", "acctId", "account");
             if (tradeAccountId != null && !tradeAccountId.isBlank() && !Objects.equals(accountId, tradeAccountId)) {
+                continue;
+            }
+            if (!isExecutionTrade(trade)) {
                 continue;
             }
 
@@ -149,6 +185,7 @@ public class IbkrClient {
                     attr(trade, "assetCategory", "assetClass", "securityType"),
                     attr(trade, "listingExchange", "exchange", "primaryExchange"),
                     attr(trade, "currency", "tradeCurrency"),
+                    optionalDecimal(attr(trade, "fxRateToBase")),
                     parseFlexDate(attr(trade, "tradeDate", "dateTime")),
                     parseFlexDateTime(attr(trade, "dateTime")),
                     parseFlexDate(attr(trade, "settleDateTarget", "settlementDate")),
@@ -162,12 +199,59 @@ public class IbkrClient {
         }
 
         if (trades.isEmpty()) {
-            throw new IllegalStateException("IBKR Flex response contained " + tradeNodes.getLength()
-                    + " Trade rows, but none matched account " + accountId
-                    + ". Check IBKR_ACCOUNT_ID or the account selected in the Flex Query.");
+            log.warn("IBKR Flex response contained {} Trade rows, but none were accepted for account={}",
+                    tradeNodes.getLength(), accountId);
+            return List.of();
         }
 
+        log.info("Parsed IBKR Flex trades account={} rawTradeRows={} acceptedExecutions={}",
+                accountId, tradeNodes.getLength(), trades.size());
         return trades;
+    }
+
+    private IbkrAccountProfile parseAccountProfile(String xml, String accountId) {
+        Document document = parseXml(xml);
+        NodeList accountNodes = document.getElementsByTagName("AccountInformation");
+        for (int index = 0; index < accountNodes.getLength(); index++) {
+            Element account = (Element) accountNodes.item(index);
+            String profileAccountId = attr(account, "accountId", "acctId", "account");
+            if (profileAccountId != null && !profileAccountId.isBlank() && !Objects.equals(accountId, profileAccountId)) {
+                continue;
+            }
+
+            return new IbkrAccountProfile(
+                    firstText(profileAccountId, accountId),
+                    parseOptionalFlexDate(attr(account, "dateOpened")),
+                    parseOptionalFlexDate(attr(account, "dateFunded"))
+            );
+        }
+
+        return new IbkrAccountProfile(accountId, null, null);
+    }
+
+    private boolean isExecutionTrade(Element trade) {
+        String levelOfDetail = attr(trade, "levelOfDetail");
+        if (levelOfDetail != null && !"EXECUTION".equalsIgnoreCase(levelOfDetail)) {
+            return false;
+        }
+
+        String executionId = attr(trade, "ibExecID", "execID", "executionID", "executionId");
+        if (executionId == null || executionId.isBlank()) {
+            return false;
+        }
+
+        return isPositiveDecimal(attr(trade, "quantity", "shares"))
+                && isPositiveDecimal(attr(trade, "tradePrice", "price"));
+    }
+
+    private boolean isPositiveDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        return new BigDecimal(value.replace(",", ""))
+                .abs()
+                .setScale(6, RoundingMode.HALF_UP)
+                .compareTo(BigDecimal.ZERO) > 0;
     }
 
     private List<IbkrPositionSnapshot> requestPositions(EClientSocket client,
@@ -364,6 +448,13 @@ public class IbkrClient {
                 }
             }
         }
+    }
+
+    private LocalDate parseOptionalFlexDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return parseFlexDate(value);
     }
 
     private LocalDateTime parseFlexDateTime(String value) {
@@ -589,6 +680,7 @@ public class IbkrClient {
                     contract.getSecType(),
                     firstText(contract.primaryExch(), contract.exchange()),
                     contract.currency(),
+                    null,
                     parseExecutionDate(execution.time()),
                     parseExecutionDateTime(execution.time()),
                     null,
