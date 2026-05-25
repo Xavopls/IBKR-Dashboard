@@ -40,6 +40,8 @@ public class IbkrClient {
     private static final Logger log = LoggerFactory.getLogger(IbkrClient.class);
 
     private static final int TRADES_REQUEST_ID = 1;
+    private static final int FLEX_REQUEST_ATTEMPTS = 4;
+    private static final long FLEX_REQUEST_BACKOFF_MILLIS = 5_000L;
     private static final DateTimeFormatter IBKR_EXECUTION_TIME = DateTimeFormatter.ofPattern("yyyyMMdd  HH:mm:ss");
     private static final DateTimeFormatter FLEX_DATE = DateTimeFormatter.BASIC_ISO_DATE;
     private static final DateTimeFormatter FLEX_SLASH_DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -75,8 +77,8 @@ public class IbkrClient {
         String referenceCode = requestFlexStatement(flex, from, to);
         String statement = fetchFlexStatement(flex, referenceCode);
         IbkrAccountProfile profile = parseAccountProfile(statement, accountId);
-        log.info("Received IBKR Flex account profile account={} dateOpened={} dateFunded={}",
-                accountId, profile.dateOpened(), profile.dateFunded());
+        log.info("Received IBKR Flex account profile account={} currency={} dateOpened={} dateFunded={}",
+                accountId, profile.currency(), profile.dateOpened(), profile.dateFunded());
         return profile;
     }
 
@@ -104,22 +106,32 @@ public class IbkrClient {
     }
 
     private String requestFlexStatement(IbkrProperties.Flex flex, LocalDate from, LocalDate to) {
-        log.info("Sending IBKR Flex statement request queryId={} from={} to={}",
-                flex.getTradesQueryId(), from, to);
-        String response = flexRestClient.get()
-                .uri(sendRequestUri(flex, from, to))
-                .retrieve()
-                .body(String.class);
+        for (int attempt = 1; attempt <= FLEX_REQUEST_ATTEMPTS; attempt++) {
+            log.info("Sending IBKR Flex statement request queryId={} from={} to={} attempt={}/{}",
+                    flex.getTradesQueryId(), from, to, attempt, FLEX_REQUEST_ATTEMPTS);
+            String response = flexRestClient.get()
+                    .uri(sendRequestUri(flex, from, to))
+                    .retrieve()
+                    .body(String.class);
 
-        Document document = parseXml(response);
-        String status = text(document, "Status");
-        if (!"Success".equalsIgnoreCase(status)) {
-            throw new IllegalStateException("IBKR Flex request failed: " + firstText(text(document, "ErrorMessage"), status));
+            Document document = parseXml(response);
+            String status = text(document, "Status");
+            if ("Success".equalsIgnoreCase(status)) {
+                String referenceCode = requireText(text(document, "ReferenceCode"), "IBKR Flex response did not include a reference code.");
+                log.info("IBKR Flex statement request accepted referenceCode={}", referenceCode);
+                return referenceCode;
+            }
+
+            String errorMessage = firstText(text(document, "ErrorMessage"), status);
+            if (isRetryableFlexError(errorMessage) && attempt < FLEX_REQUEST_ATTEMPTS) {
+                waitBeforeFlexRetry(attempt, errorMessage);
+                continue;
+            }
+
+            throw new IllegalStateException("IBKR Flex request failed: " + errorMessage);
         }
 
-        String referenceCode = requireText(text(document, "ReferenceCode"), "IBKR Flex response did not include a reference code.");
-        log.info("IBKR Flex statement request accepted referenceCode={}", referenceCode);
-        return referenceCode;
+        throw new IllegalStateException("IBKR Flex request failed after retries.");
     }
 
     private String fetchFlexStatement(IbkrProperties.Flex flex, String referenceCode) {
@@ -221,12 +233,13 @@ public class IbkrClient {
 
             return new IbkrAccountProfile(
                     firstText(profileAccountId, accountId),
+                    attr(account, "currency", "baseCurrency"),
                     parseOptionalFlexDate(attr(account, "dateOpened")),
                     parseOptionalFlexDate(attr(account, "dateFunded"))
             );
         }
 
-        return new IbkrAccountProfile(accountId, null, null);
+        return new IbkrAccountProfile(accountId, null, null, null);
     }
 
     private boolean isExecutionTrade(Element trade) {
@@ -492,6 +505,29 @@ public class IbkrClient {
             }
         }
         return null;
+    }
+
+    private boolean isRetryableFlexError(String message) {
+        if (message == null) {
+            return false;
+        }
+
+        String normalized = message.toLowerCase();
+        return normalized.contains("too many requests")
+                || normalized.contains("statement is not available")
+                || normalized.contains("statement could not be generated");
+    }
+
+    private void waitBeforeFlexRetry(int attempt, String errorMessage) {
+        long delayMillis = FLEX_REQUEST_BACKOFF_MILLIS * attempt;
+        log.warn("IBKR Flex request failed with retryable response: {}. Retrying in {} seconds",
+                errorMessage, delayMillis / 1000L);
+        try {
+            Thread.sleep(delayMillis);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting to retry IBKR Flex request", ex);
+        }
     }
 
     private static class PositionSnapshotHandler extends DefaultEWrapper implements TwsCallbackHandler {

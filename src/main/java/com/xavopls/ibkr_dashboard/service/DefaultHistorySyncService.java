@@ -70,13 +70,20 @@ public class DefaultHistorySyncService implements HistorySyncService {
                 chunkTo = resolvedTo;
             }
 
-            log.info("Syncing history trade chunk account={} from={} to={}",
-                    account.getAccountNumber(), chunkFrom, chunkTo);
-            TradeSyncResponse tradeSync = tradeSyncService.syncTrades(chunkFrom, chunkTo);
-            fetched += tradeSync.fetched();
-            inserted += tradeSync.inserted();
-            updated += tradeSync.updated();
-            skipped += tradeSync.skipped();
+            LocalDate tradeChunkFrom = nextBusinessDay(chunkFrom);
+            LocalDate tradeChunkTo = previousBusinessDay(chunkTo);
+            if (tradeChunkFrom.isAfter(tradeChunkTo)) {
+                log.info("Skipping history trade chunk with no business days account={} from={} to={}",
+                        account.getAccountNumber(), chunkFrom, chunkTo);
+            } else {
+                log.info("Syncing history trade chunk account={} from={} to={}",
+                        account.getAccountNumber(), tradeChunkFrom, tradeChunkTo);
+                TradeSyncResponse tradeSync = tradeSyncService.syncTrades(tradeChunkFrom, tradeChunkTo);
+                fetched += tradeSync.fetched();
+                inserted += tradeSync.inserted();
+                updated += tradeSync.updated();
+                skipped += tradeSync.skipped();
+            }
             chunks++;
 
             chunkFrom = chunkTo.plusDays(1);
@@ -138,6 +145,7 @@ public class DefaultHistorySyncService implements HistorySyncService {
         }
 
         IbkrAccountProfile profile = ibkrClient.getAccountProfile(account.getAccountNumber(), requestedFrom, profileTo);
+        updateAccountCurrency(account, profile);
         LocalDate earliestAvailableDate = profile.earliestAvailableDate();
         if (earliestAvailableDate == null || !requestedFrom.isBefore(earliestAvailableDate)) {
             return requestedFrom;
@@ -148,12 +156,56 @@ public class DefaultHistorySyncService implements HistorySyncService {
         return earliestAvailableDate;
     }
 
+    private void updateAccountCurrency(Account account, IbkrAccountProfile profile) {
+        Currency profileCurrency = parseCurrency(profile.currency());
+        if (profileCurrency == null || account.getCurrency() == profileCurrency) {
+            return;
+        }
+
+        log.info("Updating account currency account={} from={} to={}",
+                account.getAccountNumber(), account.getCurrency(), profileCurrency);
+        account.setCurrency(profileCurrency);
+        accountRepository.save(account);
+    }
+
+    private Currency parseCurrency(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Currency.valueOf(value.toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            log.warn("Ignoring unsupported IBKR account currency {}", value);
+            return null;
+        }
+    }
+
     private LocalDate lastCompletedBusinessDay(LocalDate date) {
         LocalDate candidate = date.minusDays(1);
-        while (candidate.getDayOfWeek() == DayOfWeek.SATURDAY || candidate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+        while (isWeekend(candidate)) {
             candidate = candidate.minusDays(1);
         }
         return candidate;
+    }
+
+    private LocalDate nextBusinessDay(LocalDate date) {
+        LocalDate candidate = date;
+        while (isWeekend(candidate)) {
+            candidate = candidate.plusDays(1);
+        }
+        return candidate;
+    }
+
+    private LocalDate previousBusinessDay(LocalDate date) {
+        LocalDate candidate = date;
+        while (isWeekend(candidate)) {
+            candidate = candidate.minusDays(1);
+        }
+        return candidate;
+    }
+
+    private boolean isWeekend(LocalDate date) {
+        return date.getDayOfWeek() == DayOfWeek.SATURDAY || date.getDayOfWeek() == DayOfWeek.SUNDAY;
     }
 
     private void sleepBetweenChunks(int delaySeconds) {

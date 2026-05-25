@@ -17,6 +17,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class DefaultPnlSyncService implements PnlSyncService {
@@ -55,14 +58,34 @@ public class DefaultPnlSyncService implements PnlSyncService {
                 resolvedFrom,
                 resolvedTo
         );
+        Map<LocalDate, DailyRealizedPnl> dailyPnlByDate = dailyPnl.stream()
+                .collect(Collectors.toMap(DailyRealizedPnl::getDate, Function.identity()));
 
-        int updated = 0;
-        for (DailyRealizedPnl row : dailyPnl) {
-            upsertDailyPnl(account, row);
-            updated++;
+        long missingBasePnlRows = tradeRepository
+                .countByAccountIdAndTradeDateBetweenAndRealizedPnlIsNotNullAndRealizedPnlBaseIsNull(
+                        account.getId(),
+                        resolvedFrom,
+                        resolvedTo
+                );
+        if (missingBasePnlRows > 0) {
+            log.warn("P&L sync ignored {} trade rows with raw realized P&L but missing base-currency P&L account={} from={} to={}",
+                    missingBasePnlRows, account.getAccountNumber(), resolvedFrom, resolvedTo);
         }
 
-        log.info("Finished P&L sync for account={} updatedDays={}", account.getAccountNumber(), updated);
+        int updated = 0;
+        LocalDate date = resolvedFrom;
+        while (!date.isAfter(resolvedTo)) {
+            DailyRealizedPnl row = dailyPnlByDate.get(date);
+            BigDecimal realizedPnl = row != null && row.getRealizedPnl() != null
+                    ? row.getRealizedPnl()
+                    : BigDecimal.ZERO;
+            upsertDailyPnl(account, date, realizedPnl);
+            updated++;
+            date = date.plusDays(1);
+        }
+
+        log.info("Finished P&L sync for account={} updatedDays={} missingBasePnlRows={}",
+                account.getAccountNumber(), updated, missingBasePnlRows);
         return new PnlSyncResponse(account.getAccountNumber(), resolvedFrom, resolvedTo, updated, Instant.now());
     }
 
@@ -97,13 +120,12 @@ public class DefaultPnlSyncService implements PnlSyncService {
         }
     }
 
-    private void upsertDailyPnl(Account account, DailyRealizedPnl row) {
-        BigDecimal realizedPnl = row.getRealizedPnl() != null ? row.getRealizedPnl() : BigDecimal.ZERO;
+    private void upsertDailyPnl(Account account, LocalDate date, BigDecimal realizedPnl) {
         BigDecimal unrealizedPnl = BigDecimal.ZERO;
         BigDecimal totalPnl = realizedPnl.add(unrealizedPnl);
 
-        DailyPnl dailyPnl = dailyPnlRepository.findByAccountIdAndDate(account.getId(), row.getDate())
-                .orElseGet(() -> new DailyPnl(account, row.getDate(), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        DailyPnl dailyPnl = dailyPnlRepository.findByAccountIdAndDate(account.getId(), date)
+                .orElseGet(() -> new DailyPnl(account, date, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
 
         dailyPnl.setRealizedPnl(realizedPnl);
         dailyPnl.setUnrealizedPnl(unrealizedPnl);

@@ -4,6 +4,7 @@ import java.time.LocalDate;
 
 public record IbkrAccountProfile(
         String accountId,
+        String currency,
         LocalDate dateOpened,
         LocalDate dateFunded
 ) {

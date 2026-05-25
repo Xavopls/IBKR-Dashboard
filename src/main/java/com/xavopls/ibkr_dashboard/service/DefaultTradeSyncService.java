@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -48,6 +49,8 @@ public class DefaultTradeSyncService implements TradeSyncService {
     @Transactional
     public TradeSyncResponse syncTrades(LocalDate from, LocalDate to) {
         to = clampToCompletedFlexDate(to);
+        from = nextBusinessDay(from);
+        to = previousBusinessDay(to);
         validateDateRange(from, to);
 
         Account account = resolveAccount();
@@ -125,11 +128,46 @@ public class DefaultTradeSyncService implements TradeSyncService {
 
     private LocalDate lastCompletedBusinessDay(LocalDate date) {
         LocalDate candidate = date.minusDays(1);
-        while (candidate.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
-                || candidate.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
+        while (isWeekend(candidate)) {
             candidate = candidate.minusDays(1);
         }
         return candidate;
+    }
+
+    private LocalDate nextBusinessDay(LocalDate date) {
+        if (date == null) {
+            return null;
+        }
+
+        LocalDate candidate = date;
+        while (isWeekend(candidate)) {
+            candidate = candidate.plusDays(1);
+        }
+
+        if (!candidate.equals(date)) {
+            log.warn("Trades sync start date {} is not a business day; using {} instead", date, candidate);
+        }
+        return candidate;
+    }
+
+    private LocalDate previousBusinessDay(LocalDate date) {
+        if (date == null) {
+            return null;
+        }
+
+        LocalDate candidate = date;
+        while (isWeekend(candidate)) {
+            candidate = candidate.minusDays(1);
+        }
+
+        if (!candidate.equals(date)) {
+            log.warn("Trades sync end date {} is not a business day; using {} instead", date, candidate);
+        }
+        return candidate;
+    }
+
+    private boolean isWeekend(LocalDate date) {
+        return date.getDayOfWeek() == DayOfWeek.SATURDAY || date.getDayOfWeek() == DayOfWeek.SUNDAY;
     }
 
     private Account resolveAccount() {

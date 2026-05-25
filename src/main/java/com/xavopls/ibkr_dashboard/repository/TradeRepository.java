@@ -22,7 +22,7 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
 
     @Query("""
             select t.tradeDate as date,
-                   coalesce(sum(coalesce(t.realizedPnlBase, t.realizedPnl, 0)), 0) as realizedPnl
+                   coalesce(sum(t.realizedPnlBase), 0) as realizedPnl
             from Trade t
             where t.account.id = :accountId
               and t.tradeDate between :from and :to
@@ -36,6 +36,12 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
     boolean existsByAccountIdAndIbkrExecutionId(Long accountId, String ibkrExecutionId);
 
     Optional<Trade> findByAccountIdAndIbkrExecutionId(Long accountId, String ibkrExecutionId);
+
+    long countByAccountIdAndTradeDateBetweenAndRealizedPnlIsNotNullAndRealizedPnlBaseIsNull(
+            Long accountId,
+            LocalDate from,
+            LocalDate to
+    );
 
     boolean existsByAccountIdAndInstrumentIdAndTradeDateAndDirectionAndQuantityAndPrice(
             Long accountId,
